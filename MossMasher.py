@@ -1,8 +1,8 @@
 import os
-# if "is_linux" in os.environ:
-#     __import__('pysqlite3')
-#     import sys
-#     sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+if "is_linux" in os.environ:
+    __import__('pysqlite3')
+    import sys
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 import streamlit as st
 import traceback
 from langchain_core.output_parsers import StrOutputParser
