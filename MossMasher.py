@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import traceback
 from langchain_core.output_parsers import StrOutputParser
@@ -9,7 +10,8 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_community.callbacks import get_openai_callback
-from document_loaders import create_pdf_page, create_login_page,create_youtube_page
+from document_loaders import create_pdf_page, create_login_page, create_youtube_page
+
 
 def init_page():
     st.set_page_config(
@@ -43,10 +45,64 @@ def init_messages():
         st.session_state.costs = []
 
 
+def create_one_shot_chain(model, aiTemp):
+    with st.spinner('Running the Moss Masher....'):
+        llm = select_model(model, aiTemp)
+        contextualize_q_system_prompt = """Given a chat history and the latest user question \
+        which might reference context in the chat history, formulate a standalone question \
+        which can be understood without the chat history. Do NOT answer the question, \
+        just reformulate it if needed and otherwise return it as is."""
+        contextualize_q_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", contextualize_q_system_prompt),
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("human", "{question}"),
+            ]
+        )
+        contextualize_q_chain = contextualize_q_prompt | llm | StrOutputParser()
+        qa_system_prompt = """You are an assistant for question-answering tasks. \
+        Use the following pieces of retrieved context to answer the question. \
+        If you don't know the answer, just say that you don't know. \
+
+        {context}"""
+        qa_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", qa_system_prompt),
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("human", "{question}"),
+            ]
+        )
+        loader = st.session_state["loader"]
+        docs = loader.load()
+
+        def contextualized_question(input: dict):
+            if input.get("chat_history"):
+                return contextualize_q_chain
+            else:
+                return input["question"]
+
+        def format_docs(self):
+            return "\n\n".join(doc.page_content for doc in docs)
+
+        with st.spinner('Mashing your data into vectors, this may take a while...'):
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            chunks = text_splitter.split_documents(docs)
+            embeddings = OpenAIEmbeddings()
+            vector_store = Chroma.from_documents(chunks, embeddings)
+            retriever = vector_store.as_retriever()
+            rag_chain = (
+                    RunnablePassthrough.assign(
+                        context=contextualized_question | retriever | format_docs
+                    )
+                    | qa_prompt
+                    | llm
+            )
+            return rag_chain
+
 def ask_questions():
     st.title(":football: :green[The Moss Masher] :dog:")
     st.header("Mash your long documents and videos into easy answers!")
-    st.markdown("<h3>Question Ideas:</h3>",unsafe_allow_html=True)
+    st.markdown("<h3>Question Ideas:</h3>", unsafe_allow_html=True)
     st.markdown("<ul><li>Please summarize this document</li><li>What is this video about?</li>"
                 "<li>You can also ask MM to look up terms and ideas beyond your document or video!</ul>",
                 unsafe_allow_html=True)
@@ -56,59 +112,8 @@ def ask_questions():
                                max_value=1.0, value=0.2, step=0.01)
     if question:
         if "rag_chain" not in st.session_state:
-            with st.spinner('Running the Moss Masher....'):
-                llm = select_model(model, aiTemp)
-                contextualize_q_system_prompt = """Given a chat history and the latest user question \
-                which might reference context in the chat history, formulate a standalone question \
-                which can be understood without the chat history. Do NOT answer the question, \
-                just reformulate it if needed and otherwise return it as is."""
-                contextualize_q_prompt = ChatPromptTemplate.from_messages(
-                    [
-                        ("system", contextualize_q_system_prompt),
-                        MessagesPlaceholder(variable_name="chat_history"),
-                        ("human", "{question}"),
-                    ]
-                )
-                contextualize_q_chain = contextualize_q_prompt | llm | StrOutputParser()
-                qa_system_prompt = """You are an assistant for question-answering tasks. \
-                Use the following pieces of retrieved context to answer the question. \
-                If you don't know the answer, just say that you don't know. \
-                
-                {context}"""
-                qa_prompt = ChatPromptTemplate.from_messages(
-                    [
-                        ("system", qa_system_prompt),
-                        MessagesPlaceholder(variable_name="chat_history"),
-                        ("human", "{question}"),
-                    ]
-                )
-                loader = st.session_state["loader"]
-                docs = loader.load()
-
-                def contextualized_question(input: dict):
-                    if input.get("chat_history"):
-                        return contextualize_q_chain
-                    else:
-                        return input["question"]
-
-                def format_docs(self):
-                    return "\n\n".join(doc.page_content for doc in docs)
-
-                with st.spinner('Mashing your data into vectors, this may take a while...'):
-                    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                    chunks = text_splitter.split_documents(docs)
-
-                    embeddings = OpenAIEmbeddings()
-                    vector_store = Chroma.from_documents(chunks, embeddings)
-                    retriever = vector_store.as_retriever()
-                    rag_chain = (
-                            RunnablePassthrough.assign(
-                                context=contextualized_question | retriever | format_docs
-                            )
-                            | qa_prompt
-                            | llm
-                    )
-                    st.session_state["rag_chain"] = rag_chain
+            rag_chain = create_one_shot_chain(model, aiTemp)
+            st.session_state["rag_chain"] = rag_chain
         else:
             rag_chain = st.session_state["rag_chain"]
 
@@ -138,6 +143,7 @@ def ask_questions():
         for cost in costs:
             st.sidebar.markdown(f"- ${cost:.5f}")
 
+
 def main():
     try:
         init_page()
@@ -153,7 +159,8 @@ def main():
             ask_questions()
     except:
         traceback.print_exc()
-        st.error("Your document was too big for your API access level.  Please choose a smaller document and try again!")
+        st.error(
+            "Your document was too big for your API access level.  Please choose a smaller document and try again!")
     finally:
         print("Done")
 
