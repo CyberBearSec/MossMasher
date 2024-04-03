@@ -40,15 +40,18 @@ def create_login_page():
                 print("Repeat dir")
         st.session_state["subPath"] = subPath
         st.markdown("Got your code!  Now click on Upload a Document or Enter Youtube Video!")
+        st.session_state["radio_value"] = 1
+        st.rerun()
 
 
 def create_pdf_page():
     st.title(":football: :green[The Moss Masher] :dog:")
     st.header("Mash your long documents and videos into easy answers!")
     container = st.container()
-    if "rag_chain" in st.session_state:
-        del st.session_state["rag_chain"]
+    if "compressor" in st.session_state:
+        del st.session_state["compressor"]
     with container:
+        st.markdown("To upload a YouTube video, please click on Enter YouTube Video")
         uploaded_file = st.file_uploader('Select your file and click Add File:', type=['pdf', 'docx', 'txt'])
         add_file = st.button('Add File', on_click=clear_history)
 
@@ -71,15 +74,16 @@ def create_pdf_page():
                 loader = TextLoader(file_name)
 
             st.session_state["loader"] = loader
-            st.write("Document retrieved!  Click on Ask Questions!")
+            st.session_state["radio_value"] = 3
+            st.rerun()
 
 
 def create_youtube_page():
     st.title(":football: :green[The Moss Masher] :dog:")
     st.header("Mash your long documents and videos into easy answers!")
     container = st.container()
-    if "rag_chain" in st.session_state:
-        del st.session_state["rag_chain"]
+    if "compressor" in st.session_state:
+        del st.session_state["compressor"]
     with container:
         youtube_url = st.text_input('Or enter your Youtube URL')
     if youtube_url:
